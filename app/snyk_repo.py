@@ -10,7 +10,7 @@ from app.gh_repo import (
     get_repo_manifests,
     passes_manifest_filter
 )
-import app.utils.snyk_helper
+import app
 
 class SnykRepo():
     """ SnykRepo object """
@@ -32,8 +32,19 @@ class SnykRepo():
         self.origin = origin
         self.branch = branch
         self.snyk_projects = snyk_projects
+
+    def __repr__(self):
+        return (
+            f"{self.full_name}" + "\n"
+            f"{self.org_id}" + "\n"
+            f"{self.org_name}" + "\n"
+            f"{self.integration_id}" + "\n"
+            f"{self.origin}" + "\n"
+            f"{self.branch}" + "\n"
+            f"{self.snyk_projects}")
+
     def __getitem__(self, item):
-        return self.full_name
+        return self.__dict__[item]
 
     def get_projects(self):
         """ return list of projects for this repo """
@@ -57,6 +68,7 @@ class SnykRepo():
         gh_repo_manifests = get_repo_manifests(self.full_name, self.origin, self.has_snyk_code())
 
         for gh_repo_manifest in gh_repo_manifests:
+            #print(f"checking to import: {gh_repo_manifest}")
             if gh_repo_manifest not in {sp['manifest'] for sp in self.snyk_projects}:
                 files.append(dict({"path": gh_repo_manifest}))
 
@@ -101,13 +113,65 @@ class SnykRepo():
                             f" in org {snyk_project['org_id']}")
         return result
 
+    def delete_manifests(self, dry_run):
+        """ delete all snyk projects corresponding to a repo """
+        result = []
+        for snyk_project in self.snyk_projects:
+            # delete project, append on success
+            if not dry_run:
+                try:
+                    app.utils.snyk_helper.delete_snyk_project(snyk_project["id"],
+                                                              snyk_project["org_id"])
+                    result.append(snyk_project)
+                except snyk.errors.SnykNotFoundError:
+                    print(f"    - Project {snyk_project['id']} not found" \
+                        f" in org {snyk_project['org_id']}")
+            else:
+                result.append(snyk_project)
+        return result
+
+
+    def deactivate_manifests(self, dry_run):
+        """ deactivate all snyk projects corresponding to a repo """
+        result = []
+        for snyk_project in [x for x in self.snyk_projects if x["is_monitored"]]:
+            # delete project, append on success
+            if not dry_run:
+                try:
+                    app.utils.snyk_helper.deactivate_snyk_project(snyk_project["id"],
+                                                                  snyk_project["org_id"])
+                    result.append(snyk_project)
+                except snyk.errors.SnykNotFoundError:
+                    print(f"    - Project {snyk_project['id']} not found" \
+                        f" in org {snyk_project['org_id']}")
+            else:
+                result.append(snyk_project)
+        return result
+
+    def activate_manifests(self, dry_run):
+        """ deactivate all snyk projects corresponding to a repo """
+        result = []
+        for snyk_project in [x for x in self.snyk_projects if not x["is_monitored"]]:
+            # delete project, append on success
+            if not dry_run:
+                try:
+                    app.utils.snyk_helper.activate_snyk_project(snyk_project["id"],
+                                                                snyk_project["org_id"])
+                    result.append(snyk_project)
+                except snyk.errors.SnykNotFoundError:
+                    print(f"    - Project {snyk_project['id']} not found" \
+                        f" in org {snyk_project['org_id']}")
+            else:
+                result.append(snyk_project)
+        return result
+
     def update_branch(self, new_branch_name, dry_run):
         """ update the branch for all snyk projects for this repo """
         result = []
         for (i, snyk_project) in enumerate(self.snyk_projects):
             if snyk_project["branch"] != new_branch_name:
                 if not dry_run:
-                    sys.stdout.write("\r  - %s/%s" % (i+1, len(self.snyk_projects)))
+                    sys.stdout.write(f"\r  - {i+1}/{len(self.snyk_projects)}")
                     sys.stdout.flush()
                     try:
                         app.utils.snyk_helper.update_project_branch(snyk_project["id"],
